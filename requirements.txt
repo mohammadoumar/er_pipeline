@@ -1,6 +1,6 @@
 gradio>=4.0.0
 easyocr
-kumiko
+opencv-python
 Pillow
 torch>=2.0.0
 transformers>=4.45.0
