@@ -36,28 +36,50 @@ def get_inference_model(name: str):
     return _inference_models[name]
 
 
+# ── Gallery update on upload ───────────────────────────────────────────────────
+
+def update_gallery(files):
+    if not files:
+        return []
+    return [Image.open(f).convert("RGB") for f in files]
+
+
 # ── Step 1: Extract ────────────────────────────────────────────────────────────
 
-def extract(files: list) -> tuple[str, str, list]:
-    """
-    Detect panels and run DeepSeek-OCR on each uploaded comics page.
-    Returns: summary markdown, per-panel table markdown, extracted panels (state).
-    """
+def extract(files):
     if not files:
-        return "Please upload at least one comics image.", "", []
+        yield "Please upload at least one comics image.", "", [], "No files uploaded."
+        return
 
     images = [Image.open(f).convert("RGB") for f in files]
-    ocr = get_ocr()
-    all_panels = ocr.process_pages(images)
 
-    # Build dataset and save
+    # Load model
+    global _ocr
+    if _ocr is None:
+        yield "", "", [], "Loading DeepSeek-OCR model... (this may take a minute)"
+        _ocr = ComicsOCR()
+        yield "", "", [], "Model loaded successfully."
+    else:
+        yield "", "", [], "Model already loaded."
+
+    # Process each page
+    all_panels = []
+    for i, image in enumerate(images):
+        yield "", "", [], f"Extracting page {i + 1} of {len(images)}..."
+        panels = _ocr.process_page(image)
+        for panel in panels:
+            all_panels.append({"page_id": i, **panel})
+        yield "", "", [], f"Page {i + 1}: {len(panels)} panel(s) detected."
+
+    # Build and save dataset
+    yield "", "", [], "Building dataset..."
     builder = DatasetBuilder()
     dataset, path = builder.build_and_save(
         [{k: v for k, v in p.items() if k != "page_id"} for p in all_panels],
         page_name="extracted"
     )
 
-    # Summary stats
+    # Summary
     num_pages = len(images)
     num_panels = len(all_panels)
     num_utterances = sum(1 for p in all_panels if p["utterance"])
@@ -77,26 +99,20 @@ def extract(files: list) -> tuple[str, str, list]:
         rows.append(f"| {p['page_id'] + 1} | {p['panel_id'] + 1} | {utterance} |")
     table = "\n".join(rows)
 
-    return summary, table, all_panels
+    yield summary, table, all_panels, "Extraction complete!"
 
 
 # ── Step 2: Generate ───────────────────────────────────────────────────────────
 
 def generate(panels_state: list, model_name: str) -> tuple[str, str]:
-    """
-    Run emotion label prediction and narrative generation on extracted panels.
-    Returns: per-panel emotion markdown, full-page narrative.
-    """
     if not panels_state:
         return "Run extraction first.", ""
 
     model = get_inference_model(model_name)
 
-    # Predict emotion per panel
     for p in panels_state:
         p["emotion"] = model.predict_panel(p["image"], p["utterance"])
 
-    # Generate narrative per page
     pages: dict[int, list] = {}
     for p in panels_state:
         pages.setdefault(p["page_id"], []).append(p)
@@ -107,7 +123,6 @@ def generate(panels_state: list, model_name: str) -> tuple[str, str]:
             f"**Page {page_id + 1}:**\n{model.generate_narrative(page_panels)}"
         )
 
-    # Emotion table
     rows = ["| Page | Panel | Utterance | Emotion |", "|---|---|---|---|"]
     for p in panels_state:
         utterance = (p["utterance"] or "_(none)_").replace("\n", " ")
@@ -135,16 +150,34 @@ with gr.Blocks(title="Comics Emotion Recognition") as demo:
                 file_count="multiple",
                 label="Upload Comics Pages",
             )
+            image_gallery = gr.Gallery(
+                label="Uploaded Pages",
+                columns=2,
+                height=320,
+                show_label=True,
+            )
             extract_btn = gr.Button("Extract", variant="primary")
+            status_box = gr.Textbox(
+                label="Progress",
+                interactive=False,
+                lines=3,
+            )
 
         with gr.Column(scale=2):
-            extract_summary = gr.Markdown(label="Summary")
-            extract_table = gr.Markdown(label="Extracted Panels")
+            extract_summary = gr.Markdown()
+            extract_table = gr.Markdown()
+
+    # Show uploaded images in gallery as soon as files are selected
+    image_input.change(
+        fn=update_gallery,
+        inputs=[image_input],
+        outputs=[image_gallery],
+    )
 
     extract_btn.click(
         fn=extract,
         inputs=[image_input],
-        outputs=[extract_summary, extract_table, panels_state],
+        outputs=[extract_summary, extract_table, panels_state, status_box],
     )
 
     gr.Markdown("---")
