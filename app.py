@@ -38,49 +38,41 @@ def get_inference_model(name: str):
 
 # ── Gallery update on upload ───────────────────────────────────────────────────
 
-def _to_path(f) -> str:
-    """Normalise a Gradio 5 file object or plain string to a file path."""
-    return f if isinstance(f, str) else f.name
-
-
-def update_gallery(files):
-    if not files:
-        return []
-    return [Image.open(_to_path(f)).convert("RGB") for f in files]
-
-
 # ── Step 1: Extract ────────────────────────────────────────────────────────────
 
-def extract(files, progress=gr.Progress(track_tqdm=False)):
-    if not files:
-        return "Please upload at least one comics image.", "", [], "No files uploaded."
-
-    images = [Image.open(_to_path(f)).convert("RGB") for f in files]
+def extract(img1, img2, img3, img4):
+    """
+    Accepts up to 4 PIL Images from gr.Image components.
+    Yields (summary, table, panels_state, status) tuples for live status updates.
+    """
+    images = [img for img in [img1, img2, img3, img4] if img is not None]
+    if not images:
+        yield "Please upload at least one comics image.", "", [], "No files uploaded."
+        return
 
     global _ocr
     if _ocr is None:
-        progress(0.05, desc="Loading DeepSeek-OCR model...")
+        yield "", "", [], "Loading DeepSeek-OCR model... (this may take a minute)"
         _ocr = ComicsOCR()
-        progress(0.15, desc="Model loaded successfully.")
-    else:
-        progress(0.15, desc="Model already loaded.")
+    yield "", "", [], "Model loaded. Starting extraction..."
 
     all_panels = []
     for i, image in enumerate(images):
-        progress(0.15 + 0.7 * (i / len(images)), desc=f"Extracting page {i + 1} of {len(images)}...")
+        yield "", "", [], f"Extracting page {i + 1} of {len(images)}..."
         panels = _ocr.process_page(image)
         for panel in panels:
             all_panels.append({"page_id": i, **panel})
+        yield "", "", [], f"Page {i + 1}: {len(panels)} panel(s) found."
 
-    progress(0.9, desc="Building dataset...")
+    yield "", "", [], "Building dataset..."
     builder = DatasetBuilder()
     dataset, path = builder.build_and_save(
         [{k: v for k, v in p.items() if k != "page_id"} for p in all_panels],
         page_name="extracted"
     )
 
-    num_pages   = len(images)
-    num_panels  = len(all_panels)
+    num_pages      = len(images)
+    num_panels     = len(all_panels)
     num_utterances = sum(1 for p in all_panels if p["utterance"])
     summary = (
         f"### Extraction Complete\n"
@@ -97,8 +89,7 @@ def extract(files, progress=gr.Progress(track_tqdm=False)):
         rows.append(f"| {p['page_id'] + 1} | {p['panel_id'] + 1} | {utterance} |")
     table = "\n".join(rows)
 
-    progress(1.0, desc="Extraction complete!")
-    return summary, table, all_panels, "Extraction complete!"
+    yield summary, table, all_panels, "Extraction complete!"
 
 
 # ── Step 2: Generate ───────────────────────────────────────────────────────────
@@ -142,40 +133,25 @@ with gr.Blocks(title="Comics Emotion Recognition") as demo:
 
     # ── Step 1 ──
     gr.Markdown("## Step 1: Extract Panels & Utterances")
+    gr.Markdown("Upload up to 4 comics pages. Click **Extract** to run OCR.")
     with gr.Row():
         with gr.Column(scale=1):
-            image_input = gr.File(
-                file_types=["image"],
-                file_count="multiple",
-                label="Upload Comics Pages",
-            )
-            image_gallery = gr.Gallery(
-                label="Uploaded Pages",
-                columns=2,
-                height=320,
-                show_label=True,
-            )
+            with gr.Row():
+                img1 = gr.Image(type="pil", label="Page 1", height=200)
+                img2 = gr.Image(type="pil", label="Page 2", height=200)
+            with gr.Row():
+                img3 = gr.Image(type="pil", label="Page 3", height=200)
+                img4 = gr.Image(type="pil", label="Page 4", height=200)
             extract_btn = gr.Button("Extract", variant="primary")
-            status_box = gr.Textbox(
-                label="Progress",
-                interactive=False,
-                lines=3,
-            )
+            status_box = gr.Textbox(label="Progress", interactive=False, lines=4)
 
         with gr.Column(scale=2):
             extract_summary = gr.Markdown()
             extract_table = gr.Markdown()
 
-    # Show uploaded images in gallery as soon as files are selected
-    image_input.change(
-        fn=update_gallery,
-        inputs=[image_input],
-        outputs=[image_gallery],
-    )
-
     extract_btn.click(
         fn=extract,
-        inputs=[image_input],
+        inputs=[img1, img2, img3, img4],
         outputs=[extract_summary, extract_table, panels_state, status_box],
     )
 
