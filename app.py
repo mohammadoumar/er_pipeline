@@ -41,55 +41,21 @@ def get_inference_model(name: str):
 # ── Step 1: Extract ────────────────────────────────────────────────────────────
 
 def extract(img1, img2, img3, img4):
-    """
-    Accepts up to 4 PIL Images from gr.Image components.
-    Yields (summary, table, panels_state, status) tuples for live status updates.
-    """
     images = [img for img in [img1, img2, img3, img4] if img is not None]
     if not images:
-        yield "Please upload at least one comics image.", "", [], "No files uploaded."
+        yield "", [], "Please upload at least one image."
         return
 
     global _ocr
     if _ocr is None:
-        yield "", "", [], "Loading DeepSeek-OCR model... (this may take a minute)"
-        _ocr = ComicsOCR()
-    yield "", "", [], "Model loaded. Starting extraction..."
-
-    all_panels = []
-    for i, image in enumerate(images):
-        yield "", "", [], f"Extracting page {i + 1} of {len(images)}..."
-        panels = _ocr.process_page(image)
-        for panel in panels:
-            all_panels.append({"page_id": i, **panel})
-        yield "", "", [], f"Page {i + 1}: {len(panels)} panel(s) found."
-
-    yield "", "", [], "Building dataset..."
-    builder = DatasetBuilder()
-    dataset, path = builder.build_and_save(
-        [{k: v for k, v in p.items() if k != "page_id"} for p in all_panels],
-        page_name="extracted"
-    )
-
-    num_pages      = len(images)
-    num_panels     = len(all_panels)
-    num_utterances = sum(1 for p in all_panels if p["utterance"])
-    summary = (
-        f"### Extraction Complete\n"
-        f"| | |\n|---|---|\n"
-        f"| Pages uploaded | {num_pages} |\n"
-        f"| Panels detected | {num_panels} |\n"
-        f"| Utterances extracted | {num_utterances} |\n"
-        f"| Dataset saved to | `{path}` |\n"
-    )
-
-    rows = ["| Page | Panel | Utterance |", "|---|---|---|"]
-    for p in all_panels:
-        utterance = p["utterance"].replace("\n", " ") or "_(none)_"
-        rows.append(f"| {p['page_id'] + 1} | {p['panel_id'] + 1} | {utterance} |")
-    table = "\n".join(rows)
-
-    yield summary, table, all_panels, "Extraction complete!"
+        yield "Loading DeepSeek-OCR model...", [], "Loading model..."
+        try:
+            _ocr = ComicsOCR()
+            yield "DeepSeek-OCR loaded successfully.", [], "Model loaded successfully."
+        except Exception as e:
+            yield f"Failed to load model: {e}", [], f"Error: {e}"
+    else:
+        yield "DeepSeek-OCR already loaded.", [], "Model already loaded."
 
 
 # ── Step 2: Generate ───────────────────────────────────────────────────────────
@@ -143,16 +109,15 @@ with gr.Blocks(title="Comics Emotion Recognition") as demo:
                 img3 = gr.Image(type="pil", label="Page 3", height=200)
                 img4 = gr.Image(type="pil", label="Page 4", height=200)
             extract_btn = gr.Button("Extract", variant="primary")
-            status_box = gr.Textbox(label="Progress", interactive=False, lines=4)
 
         with gr.Column(scale=2):
             extract_summary = gr.Markdown()
-            extract_table = gr.Markdown()
+            status_box = gr.Textbox(label="Status", interactive=False, lines=3)
 
     extract_btn.click(
         fn=extract,
         inputs=[img1, img2, img3, img4],
-        outputs=[extract_summary, extract_table, panels_state, status_box],
+        outputs=[extract_summary, panels_state, status_box],
     )
 
     gr.Markdown("---")
