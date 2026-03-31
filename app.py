@@ -38,50 +38,49 @@ def get_inference_model(name: str):
 
 # ── Gallery update on upload ───────────────────────────────────────────────────
 
+def _to_path(f) -> str:
+    """Normalise a Gradio 5 file object or plain string to a file path."""
+    return f if isinstance(f, str) else f.name
+
+
 def update_gallery(files):
     if not files:
         return []
-    return [Image.open(f).convert("RGB") for f in files]
+    return [Image.open(_to_path(f)).convert("RGB") for f in files]
 
 
 # ── Step 1: Extract ────────────────────────────────────────────────────────────
 
-def extract(files):
+def extract(files, progress=gr.Progress(track_tqdm=False)):
     if not files:
-        yield "Please upload at least one comics image.", "", [], "No files uploaded."
-        return
+        return "Please upload at least one comics image.", "", [], "No files uploaded."
 
-    images = [Image.open(f).convert("RGB") for f in files]
+    images = [Image.open(_to_path(f)).convert("RGB") for f in files]
 
-    # Load model
     global _ocr
     if _ocr is None:
-        yield "", "", [], "Loading DeepSeek-OCR model... (this may take a minute)"
+        progress(0.05, desc="Loading DeepSeek-OCR model...")
         _ocr = ComicsOCR()
-        yield "", "", [], "Model loaded successfully."
+        progress(0.15, desc="Model loaded successfully.")
     else:
-        yield "", "", [], "Model already loaded."
+        progress(0.15, desc="Model already loaded.")
 
-    # Process each page
     all_panels = []
     for i, image in enumerate(images):
-        yield "", "", [], f"Extracting page {i + 1} of {len(images)}..."
+        progress(0.15 + 0.7 * (i / len(images)), desc=f"Extracting page {i + 1} of {len(images)}...")
         panels = _ocr.process_page(image)
         for panel in panels:
             all_panels.append({"page_id": i, **panel})
-        yield "", "", [], f"Page {i + 1}: {len(panels)} panel(s) detected."
 
-    # Build and save dataset
-    yield "", "", [], "Building dataset..."
+    progress(0.9, desc="Building dataset...")
     builder = DatasetBuilder()
     dataset, path = builder.build_and_save(
         [{k: v for k, v in p.items() if k != "page_id"} for p in all_panels],
         page_name="extracted"
     )
 
-    # Summary
-    num_pages = len(images)
-    num_panels = len(all_panels)
+    num_pages   = len(images)
+    num_panels  = len(all_panels)
     num_utterances = sum(1 for p in all_panels if p["utterance"])
     summary = (
         f"### Extraction Complete\n"
@@ -92,14 +91,14 @@ def extract(files):
         f"| Dataset saved to | `{path}` |\n"
     )
 
-    # Per-panel table
     rows = ["| Page | Panel | Utterance |", "|---|---|---|"]
     for p in all_panels:
         utterance = p["utterance"].replace("\n", " ") or "_(none)_"
         rows.append(f"| {p['page_id'] + 1} | {p['panel_id'] + 1} | {utterance} |")
     table = "\n".join(rows)
 
-    yield summary, table, all_panels, "Extraction complete!"
+    progress(1.0, desc="Extraction complete!")
+    return summary, table, all_panels, "Extraction complete!"
 
 
 # ── Step 2: Generate ───────────────────────────────────────────────────────────
