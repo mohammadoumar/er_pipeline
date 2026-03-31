@@ -1,0 +1,5 @@
+local_models/*
+!local_models/.gitkeep
+__pycache__/
+*.pyc
+comics_dataset/
