@@ -8,10 +8,10 @@ A multimodal emotion recognition system for comics pages. Upload a comics page, 
 Comics Page Image
        │
        ▼
-Panel Detection (Kumiko)
+Panel Detection (OpenCV contour detection)
        │
        ▼
-OCR per Panel (EasyOCR)
+OCR per Panel (DeepSeek-OCR)
        │
        ▼
 HuggingFace Dataset (image + utterance per panel)
@@ -27,9 +27,9 @@ Vision Model (LLaMA-3.2-Vision or Qwen2.5-VL)
 
 ```
 comics_emorec/
-├── app.py                  # Gradio interface
+├── app.py                  # Gradio interface (two-step: Extract → Generate)
 ├── ocr/
-│   └── extractor.py        # Panel detection (Kumiko) + OCR (EasyOCR)
+│   └── extractor.py        # Panel detection (OpenCV) + OCR (DeepSeek-OCR)
 ├── dataset/
 │   └── builder.py          # HuggingFace dataset builder
 ├── models/
@@ -38,6 +38,8 @@ comics_emorec/
 │   └── qwen_vl.py          # Qwen2.5-VL wrapper
 ├── inference/
 │   └── pipeline.py         # End-to-end pipeline
+├── local_models/
+│   └── DeepSeek-OCR/       # Local DeepSeek-OCR model weights
 └── requirements.txt
 ```
 
@@ -45,6 +47,12 @@ comics_emorec/
 
 ```bash
 pip install -r requirements.txt
+```
+
+Flash Attention 2 is optional but recommended for faster OCR inference. Install it separately on a GPU node:
+
+```bash
+pip install flash-attn==2.7.3 --no-build-isolation
 ```
 
 Update model paths in `app.py`:
@@ -62,14 +70,14 @@ MODEL_PATHS = {
 python app.py
 ```
 
-Then open `http://localhost:7860` in your browser.
+Then open `http://localhost:7861` in your browser.
 
 ### On a SLURM cluster
 
 ```bash
 srun --gres=gpu:1 --pty python app.py
 # SSH tunnel from your local machine:
-ssh -L 7860:localhost:7860 <cluster>
+ssh -L 7861:localhost:7861 <cluster>
 ```
 
 ## Models
