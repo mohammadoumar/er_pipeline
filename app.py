@@ -74,24 +74,43 @@ def extract(img1, img2, img3, img4):
 
 # ── Step 2: Generate ───────────────────────────────────────────────────────────
 
-def generate(panels_state: list, model_name: str) -> tuple[str, str]:
+def generate(panels_state: list, model_name: str):
     if not panels_state:
-        return "Run extraction first.", ""
+        yield "Run extraction first.", ""
+        return
 
-    model = get_inference_model(model_name)
+    yield "Loading model...", ""
 
-    for p in panels_state:
-        p["emotion"] = model.predict_panel(p["image"], p["utterance"])
+    try:
+        model = get_inference_model(model_name)
+    except Exception as e:
+        yield f"Failed to load model: {e}", ""
+        return
 
-    pages: dict[int, list] = {}
-    for p in panels_state:
-        pages.setdefault(p["page_id"], []).append(p)
+    yield f"Predicting emotions for {len(panels_state)} panels...", ""
 
-    narratives = []
-    for page_id, page_panels in sorted(pages.items()):
-        narratives.append(
-            f"**Page {page_id + 1}:**\n{model.generate_narrative(page_panels)}"
-        )
+    try:
+        for p in panels_state:
+            p["emotion"] = model.predict_panel(p["image"], p["utterance"])
+    except Exception as e:
+        yield f"Emotion prediction failed: {e}", ""
+        return
+
+    yield "Generating narratives...", ""
+
+    try:
+        pages: dict[int, list] = {}
+        for p in panels_state:
+            pages.setdefault(p["page_id"], []).append(p)
+
+        narratives = []
+        for page_id, page_panels in sorted(pages.items()):
+            narratives.append(
+                f"**Page {page_id + 1}:**\n{model.generate_narrative(page_panels)}"
+            )
+    except Exception as e:
+        yield f"Narrative generation failed: {e}", ""
+        return
 
     rows = ["| Page | Panel | Utterance | Emotion |", "|---|---|---|---|"]
     for p in panels_state:
@@ -101,7 +120,7 @@ def generate(panels_state: list, model_name: str) -> tuple[str, str]:
         )
     emotion_table = "\n".join(rows)
 
-    return emotion_table, "\n\n---\n\n".join(narratives)
+    yield emotion_table, "\n\n---\n\n".join(narratives)
 
 
 # ── Gradio UI ──────────────────────────────────────────────────────────────────
