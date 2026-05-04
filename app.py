@@ -51,11 +51,25 @@ def extract(img1, img2, img3, img4):
         yield "Loading DeepSeek-OCR model...", [], "Loading model..."
         try:
             _ocr = ComicsOCR()
-            yield "DeepSeek-OCR loaded successfully.", [], "Model loaded successfully."
         except Exception as e:
             yield f"Failed to load model: {e}", [], f"Error: {e}"
-    else:
-        yield "DeepSeek-OCR already loaded.", [], "Model already loaded."
+            return
+
+    yield "Extracting panels and utterances...", [], "Running OCR..."
+
+    try:
+        panels = _ocr.process_pages(images)
+    except Exception as e:
+        yield f"Extraction failed: {e}", [], f"Error: {e}"
+        return
+
+    rows = ["| Page | Panel | Utterance |", "|---|---|---|"]
+    for p in panels:
+        utterance = (p["utterance"] or "_(none)_").replace("\n", " ")
+        rows.append(f"| {p['page_id'] + 1} | {p['panel_id'] + 1} | {utterance} |")
+    summary = f"**{len(panels)} panels extracted across {len(images)} page(s).**\n\n" + "\n".join(rows)
+
+    yield summary, panels, f"Done. {len(panels)} panels extracted."
 
 
 # ── Step 2: Generate ───────────────────────────────────────────────────────────
